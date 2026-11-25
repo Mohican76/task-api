@@ -23,7 +23,39 @@ jobs:
         run: docker compose up -d
 
       - name: Run tests
-        run: docker compose run --rm api pytest -q
+        run: |
+          set -o pipefail
+          docker compose run --rm api pytest -q 2>&1 | tee pytest.log
+
+      - name: Write failure triage summary
+        if: failure()
+        run: |
+          echo "## Failure triage" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ ! -f pytest.log ]; then
+            echo "**Failure occurred before tests ran.** Check the audit or build step." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "### Summary line" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "passed|failed|error" pytest.log | tail -1 >> "$GITHUB_STEP_SUMMARY" || echo "no summary line found" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "### Failed tests" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "^FAILED|^ERROR" pytest.log >> "$GITHUB_STEP_SUMMARY" || echo "none parsed" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "### Last 20 lines" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -20 pytest.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload pytest log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-log
+          path: pytest.log
+          if-no-files-found: ignore
 
       - name: Show logs on failure
         if: failure()
